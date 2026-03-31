@@ -229,7 +229,7 @@ async def search_images(request: SearchRequest):
             results.append(SearchResult(
                 image_id=image_id,
                 filename=image["filename"],
-                image_url=f"/images/{image['file_path']}",
+                image_url=f"{os.getenv('BASE_URL', 'http://localhost:8000')}/images/{image['file_path']}",
                 similarity_score=round(hit["score"], 4),
                 caption=image.get("caption"),
                 detected_objects=image.get("detected_objects"),
@@ -268,7 +268,7 @@ async def get_image_detail(image_id: str):
     image = get_image_by_id(image_id)
     if not image:
         raise HTTPException(404, "Image not found")
-    image["image_url"] = f"/images/{image['file_path']}"
+    image["image_url"] = f"{os.getenv('BASE_URL', 'http://localhost:8000')}/images/{image['file_path']}"
     return image
 
 

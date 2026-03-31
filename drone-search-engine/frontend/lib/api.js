@@ -5,6 +5,17 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+export function fixImageUrl(url) {
+  if (!url) return url;
+  if (url.startsWith('http://localhost:8000')) {
+    return url.replace('http://localhost:8000', API_BASE);
+  }
+  if (url.startsWith('/images/')) {
+    return `${API_BASE}${url}`;
+  }
+  return url;
+}
+
 export async function uploadImages(files) {
   const formData = new FormData();
   
