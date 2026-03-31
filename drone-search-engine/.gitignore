@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.env
+
+# Node
+node_modules/
+.next/
+out/
+
+# Database
+*.db
+*.sqlite3
+
+# Images & Reports (too large for git)
+backend/images/*
+!backend/images/.gitkeep
+backend/reports/*
+!backend/reports/.gitkeep
+
+# Models (auto-downloaded)
+*.pt
+*.pth
+*.onnx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
