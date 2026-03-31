@@ -135,7 +135,7 @@ export default function SearchPage() {
                 {/* Image */}
                 <div className="relative h-52 overflow-hidden bg-surface-800">
                   <img
-                    src={`$\{result.image_url\}`}
+                    src={`${result.image_url}`}
                     alt={result.caption || result.filename}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
@@ -218,7 +218,7 @@ function ImageDetailModal({ image, onClose }) {
           {/* Image */}
           <div className="rounded-xl overflow-hidden bg-surface-800">
             <img
-              src={`$\{image.image_url\}`}
+              src={`${image.image_url}`}
               alt={image.caption || image.filename}
               className="w-full h-auto object-contain max-h-[500px]"
             />
@@ -310,5 +310,7 @@ function ImageDetailModal({ image, onClose }) {
     </div>
   );
 }
+
+
 
 
