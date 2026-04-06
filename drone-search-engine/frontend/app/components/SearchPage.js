@@ -155,7 +155,7 @@ export default function SearchPage() {
                 {/* Metadata */}
                 <div className="p-4">
                   <p className="text-sm text-[var(--text-primary)] line-clamp-2 mb-2">
-                    {result.caption || 'No caption generated'}
+                    {result.caption || result.filename || 'Processing...'}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {(result.detected_objects || []).slice(0, 4).map((obj, i) => (
@@ -310,6 +310,7 @@ function ImageDetailModal({ image, onClose }) {
     </div>
   );
 }
+
 
 
 

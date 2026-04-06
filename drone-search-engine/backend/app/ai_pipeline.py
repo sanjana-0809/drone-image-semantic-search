@@ -48,13 +48,14 @@ def _get_yolo():
     if _yolo_model is None:
         import torch
         from ultralytics import YOLO
-        from ultralytics.nn.tasks import DetectionModel
-        from torch.nn.modules.container import Sequential
-        from torch.nn.modules.conv import Conv2d
-        from torch.nn.modules.batchnorm import BatchNorm2d
-        from torch.nn.modules.activation import SiLU
-        torch.serialization.add_safe_globals([DetectionModel, Sequential, Conv2d, BatchNorm2d, SiLU])
+        # Fix for PyTorch 2.6 weights_only=True default
+        original_load = torch.load
+        def patched_load(*args, **kwargs):
+            kwargs['weights_only'] = False
+            return original_load(*args, **kwargs)
+        torch.load = patched_load
         _yolo_model = YOLO("yolov8s.pt")
+        torch.load = original_load  # restore original
         print("✅ YOLOv8 small loaded")
     return _yolo_model
 
