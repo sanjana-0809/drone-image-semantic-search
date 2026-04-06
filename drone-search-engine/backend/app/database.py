@@ -80,7 +80,16 @@ def update_image_ai_data(image_id: str, ai_results: dict):
     conn.commit()
     conn.close()
 
-
+def save_image_metadata(image_id: str, filename: str, file_path: str, file_size: int):
+    """Save initial image metadata."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO images (image_id, filename, file_path, file_size, upload_date)
+           VALUES (?, ?, ?, ?, ?)""",
+        (image_id, filename, file_path, file_size, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
 def update_image_ai_data(image_id: str, ai_results: dict):
     """Update image with AI pipeline results."""
     conn = get_connection()

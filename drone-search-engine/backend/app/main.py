@@ -92,7 +92,7 @@ async def startup():
 # ─── Upload Endpoints ──────────────────────────────────────────
 
 @app.post("/upload", response_model=dict)
-async def upload_image(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+async def upload_image(file: UploadFile = File(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     """Upload a single drone image, process it with AI, and index it."""
     
     # Validate file type
@@ -149,7 +149,7 @@ async def upload_image(file: UploadFile = File(...), background_tasks: Backgroun
         "status": "success",
         "image_id": image_id,
         "filename": file.filename,
-        "ai_results": ai_results
+        "ai_results": {}
     }
 
 

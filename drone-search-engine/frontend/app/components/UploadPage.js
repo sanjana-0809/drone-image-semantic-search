@@ -10,7 +10,6 @@ export default function UploadPage({ onComplete }) {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState([]);
   const [processingMsg, setProcessingMsg] = useState('');
-  const [processingMsg, setProcessingMsg] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef(null);
 
