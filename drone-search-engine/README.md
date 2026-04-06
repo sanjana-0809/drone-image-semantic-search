@@ -4,6 +4,10 @@ AI-powered search through aerial drone imagery using natural language queries.
 
 Exploring what's possible when you combine computer vision, vector search, and LLMs on real aerial data.
 
+##  Live Demo
+
+ [Frontend App](https://drone-image-semantic-search.vercel.app)  
+ [Backend API](https://huggingface.co/spaces/sanjana-0809/drone-semantic-search-api)
 ---
 
 ## What It Does
