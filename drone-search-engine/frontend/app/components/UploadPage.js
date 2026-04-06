@@ -9,6 +9,8 @@ export default function UploadPage({ onComplete }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState([]);
+  const [processingMsg, setProcessingMsg] = useState('');
+  const [processingMsg, setProcessingMsg] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef(null);
 
@@ -69,6 +71,7 @@ export default function UploadPage({ onComplete }) {
     setResults(uploadResults);
     setUploading(false);
     setFiles([]);
+    setProcessingMsg('✅ Images uploaded! AI is processing them in the background — wait 30 seconds then search.');
   };
 
   const removeFile = (index) => {
@@ -80,6 +83,13 @@ export default function UploadPage({ onComplete }) {
 
   return (
     <div className="max-w-3xl mx-auto">
+
+      {processingMsg && (
+        <div className="mb-4 p-3 rounded-lg bg-green-500/20 text-green-400 text-sm text-center">
+          {processingMsg}
+        </div>
+      )}
+
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold mb-2">Upload Drone Images</h2>
         <p className="text-[var(--text-muted)] text-sm">

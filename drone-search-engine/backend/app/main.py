@@ -2,7 +2,7 @@
 Drone Image Semantic Search Engine — FastAPI Backend
 """
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -21,6 +21,7 @@ from .database import (
 from .ai_pipeline import process_image, generate_clip_embedding, text_to_embedding
 from .vector_store import init_qdrant, upsert_embedding, search_similar
 from .report_generator import generate_site_report, export_report_pdf
+from .cloudinary_helper import upload_to_cloudinary
 
 app = FastAPI(
     title="Drone Image Semantic Search Engine",
@@ -91,7 +92,7 @@ async def startup():
 # ─── Upload Endpoints ──────────────────────────────────────────
 
 @app.post("/upload", response_model=dict)
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
     """Upload a single drone image, process it with AI, and index it."""
     
     # Validate file type
@@ -117,25 +118,33 @@ async def upload_image(file: UploadFile = File(...)):
         file_size=len(content)
     )
     
-    # Run AI pipeline
-    try:
-        ai_results = process_image(file_path)
-        update_image_ai_data(image_id, ai_results)
-    except Exception as e:
-        print(f"⚠️ AI pipeline error for {file.filename}: {e}")
+    # Run everything in background — upload returns instantly
+    async def process_in_background():
         ai_results = {}
-    
-    # Generate CLIP embedding and store in Qdrant
-    try:
-        embedding = generate_clip_embedding(file_path)
-        upsert_embedding(image_id, embedding, {
-            "filename": file.filename,
-            "caption": ai_results.get("caption", ""),
-            "objects": json.dumps(ai_results.get("detected_objects", [])),
-        })
-    except Exception as e:
-        print(f"⚠️ Embedding error for {file.filename}: {e}")
-    
+        try:
+            ai_results = process_image(file_path)
+            update_image_ai_data(image_id, ai_results)
+        except Exception as e:
+            print(f"⚠️ AI pipeline error for {file.filename}: {e}")
+
+        try:
+            embedding = generate_clip_embedding(file_path)
+            upsert_embedding(image_id, embedding, {
+                "filename": file.filename,
+                "caption": ai_results.get("caption", ""),
+                "objects": json.dumps(ai_results.get("detected_objects", [])),
+            })
+        except Exception as e:
+            print(f"⚠️ Embedding error for {file.filename}: {e}")
+
+        try:
+            cloudinary_url = upload_to_cloudinary(file_path, image_id)
+            update_image_ai_data(image_id, {"cloudinary_url": cloudinary_url})
+        except Exception as e:
+            print(f"⚠️ Cloudinary upload error: {e}")
+
+    background_tasks.add_task(process_in_background)
+
     return {
         "status": "success",
         "image_id": image_id,
@@ -218,7 +227,7 @@ async def search_images(request: SearchRequest):
     # Search Qdrant for similar images
     qdrant_results = search_similar(query_embedding, top_k=request.top_k)
         # Filter out low-similarity results
-    qdrant_results = [hit for hit in qdrant_results if hit["score"] > 0.25]
+    qdrant_results = [hit for hit in qdrant_results if hit["score"] > 0.20]
     # Enrich with PostgreSQL metadata
     results = []
     for hit in qdrant_results:
@@ -229,7 +238,7 @@ async def search_images(request: SearchRequest):
             results.append(SearchResult(
                 image_id=image_id,
                 filename=image["filename"],
-                image_url=f"{os.getenv('BASE_URL', 'http://localhost:8000')}/images/{image['file_path']}",
+                image_url=image.get("cloudinary_url") or f"{os.getenv('BASE_URL', 'http://localhost:8000')}/images/{image['file_path']}",
                 similarity_score=round(hit["score"], 4),
                 caption=image.get("caption"),
                 detected_objects=image.get("detected_objects"),
@@ -250,7 +259,7 @@ async def list_images():
         ImageInfo(
             image_id=img["image_id"],
             filename=img["filename"],
-            image_url=f"/images/{img['file_path']}",
+            image_url=img.get("cloudinary_url") or f"{os.getenv('BASE_URL', 'http://localhost:8000')}/images/{img['file_path']}",
             upload_date=img["upload_date"],
             caption=img.get("caption"),
             detected_objects=img.get("detected_objects"),

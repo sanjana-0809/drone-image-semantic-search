@@ -35,7 +35,8 @@ def init_db():
             detected_objects TEXT,
             dominant_colors TEXT,
             ocr_text TEXT,
-            processed INTEGER DEFAULT 0
+            processed INTEGER DEFAULT 0,
+            cloudinary_url TEXT
         )
     """)
     
@@ -55,13 +56,26 @@ def init_db():
     print("✅ Database initialized")
 
 
-def save_image_metadata(image_id: str, filename: str, file_path: str, file_size: int):
-    """Save initial image metadata."""
+def update_image_ai_data(image_id: str, ai_results: dict):
+    """Update image with AI pipeline results."""
     conn = get_connection()
     conn.execute(
-        """INSERT INTO images (image_id, filename, file_path, file_size, upload_date)
-           VALUES (?, ?, ?, ?, ?)""",
-        (image_id, filename, file_path, file_size, datetime.now().isoformat())
+        """UPDATE images SET
+            caption = COALESCE(?, caption),
+            detected_objects = COALESCE(?, detected_objects),
+            dominant_colors = COALESCE(?, dominant_colors),
+            ocr_text = COALESCE(?, ocr_text),
+            cloudinary_url = COALESCE(?, cloudinary_url),
+            processed = 1
+           WHERE image_id = ?""",
+        (
+            ai_results.get("caption"),
+            json.dumps(ai_results.get("detected_objects", [])) if ai_results.get("detected_objects") else None,
+            json.dumps(ai_results.get("dominant_colors", [])) if ai_results.get("dominant_colors") else None,
+            ai_results.get("ocr_text"),
+            ai_results.get("cloudinary_url"),
+            image_id
+        )
     )
     conn.commit()
     conn.close()

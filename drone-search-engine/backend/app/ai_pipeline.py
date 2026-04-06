@@ -48,8 +48,8 @@ def _get_yolo():
     global _yolo_model
     if _yolo_model is None:
         from ultralytics import YOLO
-        _yolo_model = YOLO("yolov8n.pt")  # nano — fastest
-        print("✅ YOLOv8 nano loaded")
+        _yolo_model = YOLO("yolov8s.pt")  # small — better accuracy
+        print("✅ YOLOv8 small loaded")
     return _yolo_model
 
 
@@ -58,11 +58,11 @@ def _get_clip():
     if _clip_model is None:
         import open_clip
         _clip_model, _, _clip_preprocess = open_clip.create_model_and_transforms(
-            "ViT-B-32", pretrained="laion2b_s34b_b79k"
+            "ViT-L-14", pretrained="laion2b_s32b_b82k"
         )
-        _clip_tokenizer = open_clip.get_tokenizer("ViT-B-32")
+        _clip_tokenizer = open_clip.get_tokenizer("ViT-L-14")
         _clip_model.eval()
-        print("✅ CLIP ViT-B/32 loaded")
+        print("✅ CLIP ViT-L/14 loaded")
     return _clip_model, _clip_preprocess, _clip_tokenizer
 
 
@@ -195,15 +195,18 @@ def generate_clip_embedding(image_path: str) -> list:
 
 
 def text_to_embedding(text: str) -> list:
-    """Convert a text query to a CLIP embedding (same space as images)."""
+    """Convert a text query to a CLIP embedding with query expansion."""
     import torch
-    
+
     model, _, tokenizer = _get_clip()
-    
-    tokens = tokenizer([text])
-    
+
+    # Query expansion — search with richer context
+    expanded = f"{text}, aerial view, drone footage, {text} from above, satellite view of {text}"
+
+    tokens = tokenizer([expanded])
+
     with torch.no_grad():
         embedding = model.encode_text(tokens)
         embedding = embedding / embedding.norm(dim=-1, keepdim=True)
-    
+
     return embedding.squeeze().cpu().numpy().tolist()
