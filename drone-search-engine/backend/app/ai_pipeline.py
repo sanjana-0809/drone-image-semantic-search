@@ -43,15 +43,20 @@ def _get_blip():
         print("✅ BLIP captioning model loaded")
     return _blip_processor, _blip_model
 
-
 def _get_yolo():
     global _yolo_model
     if _yolo_model is None:
+        import torch
         from ultralytics import YOLO
-        _yolo_model = YOLO("yolov8s.pt")  # small — better accuracy
+        from ultralytics.nn.tasks import DetectionModel
+        from torch.nn.modules.container import Sequential
+        from torch.nn.modules.conv import Conv2d
+        from torch.nn.modules.batchnorm import BatchNorm2d
+        from torch.nn.modules.activation import SiLU
+        torch.serialization.add_safe_globals([DetectionModel, Sequential, Conv2d, BatchNorm2d, SiLU])
+        _yolo_model = YOLO("yolov8s.pt")
         print("✅ YOLOv8 small loaded")
     return _yolo_model
-
 
 def _get_clip():
     global _clip_model, _clip_preprocess, _clip_tokenizer
@@ -87,7 +92,7 @@ def generate_caption(image_path: str) -> str:
         image = Image.open(image_path).convert("RGB")
         
         # Resize for speed — BLIP doesn't need full resolution
-        image.thumbnail((384, 384))
+        image = image.resize((384, 384))
         
         inputs = processor(image, return_tensors="pt")
         output = model.generate(**inputs, max_new_tokens=50)

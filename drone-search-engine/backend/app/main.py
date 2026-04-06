@@ -227,7 +227,7 @@ async def search_images(request: SearchRequest):
     # Search Qdrant for similar images
     qdrant_results = search_similar(query_embedding, top_k=request.top_k)
         # Filter out low-similarity results
-    qdrant_results = [hit for hit in qdrant_results if hit["score"] > 0.20]
+    qdrant_results = [hit for hit in qdrant_results if hit["score"] > 0.18]
     # Enrich with PostgreSQL metadata
     results = []
     for hit in qdrant_results:
@@ -353,3 +353,6 @@ async def export_report():
 @app.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
+

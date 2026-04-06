@@ -12,7 +12,7 @@ from qdrant_client.models import (
 import uuid
 
 COLLECTION_NAME = "drone_images"
-VECTOR_DIM = 512  # CLIP ViT-B/32 output dimension
+VECTOR_DIM = 768  # CLIP ViT-L/14 output dimension
 
 _client = None
 
@@ -98,3 +98,4 @@ def get_collection_info() -> dict:
         "vectors_count": info.vectors_count,
         "points_count": info.points_count,
     }
+
