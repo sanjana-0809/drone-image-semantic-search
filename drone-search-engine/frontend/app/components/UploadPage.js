@@ -1,33 +1,42 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { Upload, Image, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { uploadImages } from '../../lib/api';
+import { Upload, Image, CheckCircle, AlertCircle, Loader2, X } from 'lucide-react';
+import { MAX_UPLOAD_SIZE_MB, uploadImages, validateImageFile } from '../../lib/api';
 
 export default function UploadPage({ onComplete }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState([]);
+  const [rejections, setRejections] = useState([]);
   const [processingMsg, setProcessingMsg] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef(null);
 
   const handleFiles = useCallback((fileList) => {
-    const imageFiles = Array.from(fileList).filter((f) =>
-      f.type.startsWith('image/')
-    );
-    setFiles((prev) => [...prev, ...imageFiles]);
+    const accepted = [];
+    const rejected = [];
+
+    Array.from(fileList).forEach((file) => {
+      const error = validateImageFile(file);
+      if (error) {
+        rejected.push({ filename: file.name, error });
+      } else {
+        accepted.push(file);
+      }
+    });
+
+    setFiles((prev) => [...prev, ...accepted]);
+    setRejections(rejected);
+    setResults([]);
+    setProcessingMsg('');
   }, []);
 
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
+    setDragActive(e.type === 'dragenter' || e.type === 'dragover');
   };
 
   const handleDrop = (e) => {
@@ -44,18 +53,18 @@ export default function UploadPage({ onComplete }) {
 
     setUploading(true);
     setResults([]);
+    setRejections([]);
     setProgress({ done: 0, total: files.length });
 
     const uploadResults = [];
 
-    // Upload one by one for progress tracking
-    for (let i = 0; i < files.length; i++) {
+    for (let i = 0; i < files.length; i += 1) {
       try {
         const result = await uploadImages([files[i]]);
         uploadResults.push({
           filename: files[i].name,
-          status: 'success',
-          caption: result.ai_results?.caption || '',
+          status: 'queued',
+          imageId: result.image_id,
         });
       } catch (err) {
         uploadResults.push({
@@ -70,36 +79,52 @@ export default function UploadPage({ onComplete }) {
     setResults(uploadResults);
     setUploading(false);
     setFiles([]);
-    setProcessingMsg('✅ Images uploaded! AI is processing them in the background — wait 30 seconds then search.');
+    setProcessingMsg('Images uploaded and queued. AI processing continues in the background.');
   };
 
   const removeFile = (index) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const successCount = results.filter((r) => r.status === 'success').length;
+  const successCount = results.filter((r) => r.status === 'queued').length;
   const errorCount = results.filter((r) => r.status === 'error').length;
+  const uploadPercent = progress.total ? (progress.done / progress.total) * 100 : 0;
 
   return (
     <div className="max-w-3xl mx-auto">
-
       {processingMsg && (
-        <div className="mb-4 p-3 rounded-lg bg-green-500/20 text-green-400 text-sm text-center">
+        <div className="mb-4 p-3 rounded-lg bg-green-500/20 text-green-300 text-sm text-center">
           {processingMsg}
+        </div>
+      )}
+
+      {rejections.length > 0 && (
+        <div className="mb-4 p-4 rounded-lg border border-red-500/30 bg-red-500/10">
+          <div className="flex items-center gap-2 text-sm text-red-300 font-medium mb-2">
+            <AlertCircle size={16} />
+            Some files were rejected
+          </div>
+          <div className="space-y-1">
+            {rejections.map((item) => (
+              <p key={`${item.filename}-${item.error}`} className="text-xs text-[var(--text-muted)]">
+                <span className="font-mono">{item.filename}</span>: {item.error}
+              </p>
+            ))}
+          </div>
         </div>
       )}
 
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold mb-2">Upload Drone Images</h2>
         <p className="text-[var(--text-muted)] text-sm">
-          Upload aerial images to be processed by the AI pipeline and indexed for semantic search.
+          JPG, PNG, WebP, TIFF, or BMP. Max {MAX_UPLOAD_SIZE_MB} MB per image.
         </p>
       </div>
 
-      {/* ─── Drop Zone ────────────────────────── */}
       {!uploading && results.length === 0 && (
-        <div
-          className={`drop-zone ${dragActive ? 'active' : ''}`}
+        <button
+          type="button"
+          className={`drop-zone w-full ${dragActive ? 'active' : ''}`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
           onDragOver={handleDrag}
@@ -107,39 +132,39 @@ export default function UploadPage({ onComplete }) {
           onClick={() => inputRef.current?.click()}
         >
           <Upload size={40} className="mx-auto mb-4 text-[var(--text-muted)]" />
-          <p className="text-[var(--text-primary)] font-medium mb-1">
-            Drag & drop images here
-          </p>
-          <p className="text-[var(--text-muted)] text-sm">
-            or click to browse — supports JPG, PNG, WebP, TIFF
-          </p>
+          <span className="block text-[var(--text-primary)] font-medium mb-1">
+            Drop images here
+          </span>
+          <span className="block text-[var(--text-muted)] text-sm">
+            or click to browse
+          </span>
           <input
             ref={inputRef}
             type="file"
             multiple
-            accept="image/*"
+            accept=".jpg,.jpeg,.png,.webp,.tif,.tiff,.bmp,image/jpeg,image/png,image/webp,image/tiff,image/bmp"
             onChange={(e) => handleFiles(e.target.files)}
             className="hidden"
           />
-        </div>
+        </button>
       )}
 
-      {/* ─── Selected Files ───────────────────── */}
       {files.length > 0 && !uploading && (
         <div className="mt-6">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-3">
             <p className="text-sm text-[var(--text-secondary)]">
               {files.length} image{files.length > 1 ? 's' : ''} selected
             </p>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => setFiles([])}
                 className="btn-secondary text-sm py-2 px-4"
               >
                 Clear all
               </button>
-              <button onClick={handleUpload} className="btn-primary text-sm py-2 px-4">
-                Upload & Process
+              <button type="button" onClick={handleUpload} className="btn-primary text-sm py-2 px-4">
+                Upload
               </button>
             </div>
           </div>
@@ -147,7 +172,7 @@ export default function UploadPage({ onComplete }) {
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {files.map((file, i) => (
               <div
-                key={i}
+                key={`${file.name}-${file.size}-${i}`}
                 className="flex items-center gap-3 p-3 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)]"
               >
                 <Image size={16} className="text-brand-400 flex-shrink-0" />
@@ -158,10 +183,13 @@ export default function UploadPage({ onComplete }) {
                   {(file.size / 1024).toFixed(0)} KB
                 </span>
                 <button
+                  type="button"
                   onClick={() => removeFile(i)}
-                  className="text-[var(--text-muted)] hover:text-red-400 transition text-xs"
+                  className="text-[var(--text-muted)] hover:text-red-400 transition p-1"
+                  aria-label={`Remove ${file.name}`}
+                  title="Remove"
                 >
-                  Remove
+                  <X size={16} />
                 </button>
               </div>
             ))}
@@ -169,44 +197,41 @@ export default function UploadPage({ onComplete }) {
         </div>
       )}
 
-      {/* ─── Upload Progress ──────────────────── */}
       {uploading && (
         <div className="card-glow p-8 text-center">
           <Loader2 size={40} className="mx-auto mb-4 text-brand-400 animate-spin" />
-          <p className="text-lg font-semibold mb-2">Processing images...</p>
+          <p className="text-lg font-semibold mb-2">Uploading images...</p>
           <p className="text-sm text-[var(--text-muted)] mb-4">
-            Running EasyOCR + BLIP-2 + YOLOv8 + CLIP on each image
+            Each image is validated, stored, and queued for AI processing.
           </p>
 
-          {/* Progress bar */}
           <div className="w-full max-w-md mx-auto">
             <div className="flex justify-between text-xs text-[var(--text-muted)] mb-1">
               <span>{progress.done} of {progress.total}</span>
-              <span>{((progress.done / progress.total) * 100).toFixed(0)}%</span>
+              <span>{uploadPercent.toFixed(0)}%</span>
             </div>
             <div className="w-full h-2 bg-surface-800 rounded-full overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-brand-500 to-purple-500 rounded-full transition-all duration-300"
-                style={{ width: `${(progress.done / progress.total) * 100}%` }}
+                className="h-full bg-gradient-to-r from-brand-500 to-cyan-400 rounded-full transition-all duration-300"
+                style={{ width: `${uploadPercent}%` }}
               />
             </div>
           </div>
         </div>
       )}
 
-      {/* ─── Results ──────────────────────────── */}
       {results.length > 0 && !uploading && (
         <div className="mt-6">
-          {/* Summary */}
           <div className="card-glow p-6 mb-4 text-center">
             <CheckCircle size={36} className="mx-auto mb-3 text-emerald-400" />
             <p className="text-lg font-semibold mb-1">Upload Complete</p>
             <p className="text-sm text-[var(--text-muted)]">
-              {successCount} processed successfully
+              {successCount} queued
               {errorCount > 0 && `, ${errorCount} failed`}
             </p>
             <div className="flex gap-3 justify-center mt-4">
               <button
+                type="button"
                 onClick={() => {
                   setResults([]);
                   setFiles([]);
@@ -216,6 +241,7 @@ export default function UploadPage({ onComplete }) {
                 Upload more
               </button>
               <button
+                type="button"
                 onClick={onComplete}
                 className="btn-primary text-sm py-2 px-4"
               >
@@ -224,29 +250,27 @@ export default function UploadPage({ onComplete }) {
             </div>
           </div>
 
-          {/* Individual results */}
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {results.map((r, i) => (
+            {results.map((result, i) => (
               <div
-                key={i}
+                key={`${result.filename}-${i}`}
                 className="flex items-center gap-3 p-3 rounded-lg bg-[var(--surface-raised)] border border-[var(--border)]"
               >
-                {r.status === 'success' ? (
+                {result.status === 'queued' ? (
                   <CheckCircle size={16} className="text-emerald-400 flex-shrink-0" />
                 ) : (
                   <AlertCircle size={16} className="text-red-400 flex-shrink-0" />
                 )}
                 <span className="text-sm text-[var(--text-primary)] truncate flex-1">
-                  {r.filename}
+                  {result.filename}
                 </span>
-                {r.caption && (
-                  <span className="text-xs text-[var(--text-muted)] truncate max-w-[200px]">
-                    {r.caption}
+                {result.error ? (
+                  <span className="text-xs text-red-400 truncate max-w-[220px]">
+                    {result.error}
                   </span>
-                )}
-                {r.error && (
-                  <span className="text-xs text-red-400 truncate max-w-[200px]">
-                    {r.error}
+                ) : (
+                  <span className="text-xs text-[var(--text-muted)] font-mono">
+                    queued
                   </span>
                 )}
               </div>

@@ -40,7 +40,7 @@ echo "  Backend ready!"
 
 if [ ! -f ".env" ]; then
     cp .env.example .env
-    echo "  Created .env — add your ANTHROPIC_API_KEY"
+    echo "  Created .env - add your GROQ_API_KEY and optional Cloudinary keys"
 fi
 cd ..
 

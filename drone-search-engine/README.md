@@ -1,240 +1,126 @@
 # Drone Image Semantic Search Engine
 
-AI-powered search through aerial drone imagery using natural language queries.
-
-Exploring what's possible when you combine computer vision, vector search, and LLMs on real aerial data.
-
----
+AI-powered search for aerial and drone imagery using natural-language queries, computer vision, vector search, and generated site reports.
 
 ## What It Does
 
-Upload drone/aerial images → AI processes each one (caption, object detection, OCR, color analysis) → Search the collection using plain English → Generate a Site Intelligence Report with Claude API → Export as PDF.
-
-Example queries:
-- `"construction site with cranes"`
-- `"vehicles on road"`
-- `"water body near buildings"`
-- `"solar panels on rooftop"`
-- `"highway intersection aerial view"`
-
----
+1. Upload drone or aerial images.
+2. The backend validates each image, stores it, and queues AI processing.
+3. The AI pipeline extracts captions, objects, OCR text, dominant colors, and CLIP embeddings.
+4. Qdrant stores vectors for semantic search.
+5. Groq generates a site intelligence report that can be exported as PDF.
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|------------|
-| Backend | FastAPI (Python) |
-| Frontend | Next.js 14 (App Router) + Tailwind CSS |
-| Image Captioning | BLIP base (Salesforce) |
-| Object Detection | YOLOv8s (Ultralytics) |
-| Text Extraction | EasyOCR |
-| Color Analysis | OpenCV + K-means |
-| Embeddings | CLIP ViT-L/14 (OpenCLIP) — 768-dim |
-| Vector Search | Qdrant Cloud |
-| Report Generation | Claude API (Anthropic) |
-| Image Storage | Cloudinary (permanent cloud storage) |
-| Database | SQLite |
-| Backend Hosting | Hugging Face Spaces (Docker) |
-| Frontend Hosting | Vercel |
+| --- | --- |
+| Backend | FastAPI, SQLite |
+| Frontend | Next.js 16, React 18, Tailwind CSS |
+| Captioning | BLIP base |
+| Object Detection | YOLOv8s |
+| OCR | EasyOCR |
+| Embeddings | OpenCLIP ViT-L/14 |
+| Vector Search | Qdrant |
+| Reports | Groq API + ReportLab |
+| Optional Image Storage | Cloudinary |
 
----
+## Security Hardening
 
-## Live Demo
-
-- **Frontend:** [drone-image-semantic-search.vercel.app](https://drone-image-semantic-search.vercel.app)
-- **Backend API:** [HuggingFace Spaces](https://huggingface.co/spaces/sanjana-0809/drone-semantic-search-api)
-
----
+- Restricted CORS with `CORS_ORIGINS` instead of wildcard origins.
+- Same-origin frontend API calls through `/api` rewrites by default.
+- Upload extension, MIME, size, image-content, and pixel-count validation.
+- Background processing for single and batch uploads.
+- Safer filename handling and UUID-only stored image paths.
+- SQLite WAL mode, indexes, and schema migration for processing status fields.
+- Lazy optional imports for Cloudinary and Qdrant.
+- Prompt-injection guardrails for OCR/caption data used in report prompts.
+- Escaped report text in PDF generation.
+- Next.js security headers and disabled `X-Powered-By`.
+- Frontend dependency audit cleaned with Next.js 16.2.4 and PostCSS 8.5.14 override.
+- Docker backend runs as a non-root user.
 
 ## Quick Start
 
-### Prerequisites
-- Python 3.10+
-- Node.js 18+
-
-### 1. Backend Setup
+### Backend
 
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate        # Linux/Mac
-# venv\Scripts\activate         # Windows
-
-# Install dependencies
+venv\Scripts\activate
 pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env and fill in your API keys
-
-# Start the server
-uvicorn app.main:app --reload --port 8000
+copy .env.example .env
+python run.py
 ```
 
-Backend runs at: `http://localhost:8000`
+Backend default: `http://127.0.0.1:8000`
 
-### 2. Frontend Setup
+Qdrant must be running locally unless `QDRANT_URL` is configured:
+
+```bash
+docker run -d -p 6333:6333 -p 6334:6334 --name qdrant qdrant/qdrant
+```
+
+### Frontend
 
 ```bash
 cd frontend
 npm install
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
 npm run dev
 ```
 
-Frontend runs at: `http://localhost:3000`
+Frontend default: `http://localhost:3000`
 
-### 3. Upload & Search
+The frontend uses `/api` rewrites by default. Set `BACKEND_URL` for the server-side rewrite target, or set `NEXT_PUBLIC_API_URL` only when the browser must call the backend directly.
 
-1. Go to `http://localhost:3000`
-2. Click the **Upload** tab
-3. Drag & drop aerial/drone images
-4. Wait ~30–60 seconds for background AI processing
-5. Switch to **Search** and start querying!
+## Backend Environment
 
----
-
-## Environment Variables
-
-**Backend `.env`:**
 ```env
-QDRANT_URL=https://your-cluster.qdrant.io
-QDRANT_API_KEY=your_key
-CLOUDINARY_CLOUD_NAME=your_name
-CLOUDINARY_API_KEY=your_key
-CLOUDINARY_API_SECRET=your_secret
-ANTHROPIC_API_KEY=sk-ant-...
+ENVIRONMENT=development
+HOST=127.0.0.1
+PORT=8000
 BASE_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:3000
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+
+MAX_UPLOAD_SIZE_MB=25
+MAX_BATCH_FILES=25
+MAX_IMAGE_PIXELS=50000000
+
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+# QDRANT_URL=https://your-cluster.qdrant.io
+# QDRANT_API_KEY=your_qdrant_api_key
+
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_REPORT_MODEL=llama-3.3-70b-versatile
+
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```
-
-**Frontend `.env.local`:**
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
----
-
-## Dataset Sources (No Drone Needed)
-
-| Dataset | Description | Link |
-|---------|-------------|------|
-| DOTA v1.5 | 2,806 aerial images with object labels | [captain-whu.github.io/DOTA](https://captain-whu.github.io/DOTA) |
-| OpenAerialMap | Real licensed drone captures worldwide | [openaerialmap.org](https://openaerialmap.org) |
-| USGS Earth Explorer | Free satellite & aerial imagery | [earthexplorer.usgs.gov](https://earthexplorer.usgs.gov) |
-
-> Tip: Download ~100–200 images from one category (vehicles, buildings) for a focused demo.
-
----
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| --- | --- | --- |
 | `GET` | `/health` | Health check |
-| `POST` | `/upload` | Upload single image (async processing) |
-| `POST` | `/upload-batch` | Upload multiple images |
-| `POST` | `/search` | Semantic search (`{query, top_k}`) |
-| `GET` | `/images-list` | List all indexed images |
-| `GET` | `/image/{id}` | Get image detail + AI results |
+| `POST` | `/upload` | Upload one image and queue processing |
+| `POST` | `/upload-batch` | Upload multiple images and queue processing |
+| `POST` | `/search` | Semantic image search |
+| `GET` | `/images-list` | List uploaded images and processing status |
+| `GET` | `/image/{id}` | Get one image |
 | `GET` | `/stats` | Collection statistics |
-| `POST` | `/generate-report` | Generate site intelligence report |
+| `POST` | `/generate-report` | Generate report from processed images |
 | `GET` | `/report` | Get latest report |
-| `POST` | `/export-report` | Download report as PDF |
+| `POST` | `/export-report` | Download latest report as PDF |
 
----
+## Verification
 
-## Demo Script (4 minutes)
+```bash
+cd backend
+python -m compileall app
 
-1. **Open the app** → Show landing page with search bar and suggestion chips
-2. **Upload** → Switch to Upload tab, drag 5–10 images, show green processing message
-3. **Wait** → 30–60 seconds for background AI processing
-4. **Search** → Run 3 queries:
-   - `"vehicles on road"` → show results grid with similarity scores
-   - `"buildings and skyscrapers"` → click a result to show detail modal
-   - `"water or river"` → show color swatches and captions
-5. **Report** → Click Generate Report, wait for Claude, show formatted report
-6. **PDF** → Click Export PDF, open the downloaded file
-
-Total time: ~3–4 minutes
-
----
-
-## How Search Works
-
-1. Every uploaded image is run through a 5-model AI pipeline:
-   - **EasyOCR** → extracts visible text
-   - **BLIP** → generates a natural language caption
-   - **YOLOv8s** → detects objects
-   - **OpenCV K-Means** → extracts dominant colors
-   - **CLIP ViT-L/14** → generates a 768-dim semantic embedding
-
-2. The CLIP embedding is stored in **Qdrant** (vector database)
-
-3. At search time, the text query is also embedded with CLIP and compared against all image vectors using **cosine similarity**
-
-4. Query expansion is applied automatically:
-   ```
-   "roads" → "roads, aerial view, drone footage, roads from above, satellite view of roads"
-   ```
-   This improves recall for relevant images even when exact words don't match.
-
----
-
-## Project Structure
-
+cd ../frontend
+npm audit --audit-level=moderate
+npm run build
 ```
-drone-search-engine/
-├── backend/
-│   ├── app/
-│   │   ├── main.py               # FastAPI routes + async upload
-│   │   ├── ai_pipeline.py        # EasyOCR + BLIP + YOLOv8 + OpenCV + CLIP
-│   │   ├── database.py           # SQLite database layer
-│   │   ├── vector_store.py       # Qdrant vector operations
-│   │   ├── cloudinary_helper.py  # Permanent cloud image storage
-│   │   └── report_generator.py   # Claude API + PDF export
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── .env.example
-└── frontend/
-    ├── app/
-    │   ├── layout.js
-    │   ├── page.js
-    │   ├── globals.css
-    │   └── components/
-    │       ├── SearchPage.js
-    │       ├── UploadPage.js
-    │       └── ReportPage.js
-    ├── lib/
-    │   └── api.js
-    ├── package.json
-    └── next.config.js
-```
-
----
-
-## What I'd Improve With More Time
-
-- Change detection between two collections of the same site at different dates — showing construction progress
-- Map overlay showing GPS coordinates of each image on a satellite map
-- Real-time processing with WebSocket progress updates
-- PostgreSQL + pgvector for production-grade data layer
-- Authentication and multi-tenant collection management
-- GPU support on HF Spaces for faster inference
-- Image deduplication using perceptual hashing
-
----
-
-## Deployment
-
-| Service | What it hosts |
-|---------|--------------|
-| Hugging Face Spaces (Docker) | FastAPI backend + all AI models |
-| Vercel | Next.js frontend |
-| Qdrant Cloud | Vector database (free tier) |
-| Cloudinary | Image storage (permanent, free tier) |
-
----
-
-Built by **Sanjana Ghatge**

@@ -20,7 +20,7 @@
 }
 
 body {
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--surface);
   color: var(--text-primary);
   min-height: 100vh;
@@ -44,7 +44,7 @@ body::before {
   position: relative;
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   transition: all 0.2s ease;
 }
 
@@ -57,13 +57,13 @@ body::before {
 .search-input {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 14px 20px;
   font-size: 16px;
   color: var(--text-primary);
   width: 100%;
   transition: all 0.2s ease;
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .search-input:focus {
@@ -81,13 +81,13 @@ body::before {
   background: var(--brand);
   color: white;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 12px 24px;
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .btn-primary:hover {
@@ -104,13 +104,13 @@ body::before {
   background: var(--surface-overlay);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 12px 24px;
   font-weight: 500;
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .btn-secondary:hover {
@@ -133,7 +133,7 @@ body::before {
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 20px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }
 
 /* ─── Tag pill ────────────────────────────────── */
@@ -145,7 +145,7 @@ body::before {
   padding: 3px 10px;
   border-radius: 20px;
   border: 1px solid var(--border);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }
 
 /* ─── Skeleton loading ────────────────────────── */
@@ -196,7 +196,7 @@ body::before {
 /* ─── Drop zone ───────────────────────────────── */
 .drop-zone {
   border: 2px dashed var(--border);
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 48px;
   text-align: center;
   transition: all 0.2s ease;

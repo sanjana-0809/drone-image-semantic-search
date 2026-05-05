@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Upload, FileText, BarChart3, Satellite, Zap } from 'lucide-react';
+import { Search, Upload, FileText, Satellite, Zap, AlertTriangle } from 'lucide-react';
 import SearchPage from './components/SearchPage';
 import UploadPage from './components/UploadPage';
 import ReportPage from './components/ReportPage';
@@ -24,42 +24,47 @@ export default function Home() {
   }, [activeTab]);
 
   return (
-    <div className="relative z-10 min-h-screen">
-      {/* ─── Header ─────────────────────────────── */}
-      <header className="border-b border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-purple-500 flex items-center justify-center">
+    <div className="relative z-10 min-h-screen flex flex-col">
+      <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-brand-500 flex items-center justify-center flex-shrink-0">
               <Satellite size={18} className="text-white" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">Drone Search Engine</h1>
-              <p className="text-[11px] text-[var(--text-muted)] font-mono tracking-wider"></p>
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold tracking-tight truncate">Drone Search Engine</h1>
+              <p className="sr-only">Semantic search for aerial imagery</p>
             </div>
           </div>
 
-          {/* Stats pills */}
           {stats && (
-            <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[var(--text-muted)]">
+            <div className="hidden lg:flex items-center gap-4 text-xs font-mono text-[var(--text-muted)]">
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                {stats.total_images} images indexed
+                {stats.total_images} images
               </span>
               <span>{stats.processed_images} processed</span>
+              {stats.failed_images > 0 && (
+                <span className="flex items-center gap-1 text-amber-300">
+                  <AlertTriangle size={12} />
+                  {stats.failed_images} failed
+                </span>
+              )}
             </div>
           )}
 
-          {/* Nav tabs */}
-          <nav className="flex gap-1">
+          <nav className="flex gap-1" aria-label="Primary">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setActiveTab(tab.id)}
                   className={`nav-link flex items-center gap-2 ${
                     activeTab === tab.id ? 'active' : ''
                   }`}
+                  aria-current={activeTab === tab.id ? 'page' : undefined}
                 >
                   <Icon size={16} />
                   <span className="hidden sm:inline">{tab.label}</span>
@@ -70,20 +75,18 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ─── Main Content ──────────────────────── */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-6 py-8 w-full flex-1">
         {activeTab === 'search' && <SearchPage />}
         {activeTab === 'upload' && <UploadPage onComplete={() => setActiveTab('search')} />}
         {activeTab === 'report' && <ReportPage />}
       </main>
 
-      {/* ─── Footer ─────────────────────────────── */}
-      <footer className="border-t border-[var(--border)] mt-auto">
-        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between text-xs text-[var(--text-muted)]">
+      <footer className="border-t border-[var(--border)]">
+        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between gap-4 text-xs text-[var(--text-muted)]">
           <span>Drone Image Semantic Search Engine</span>
-          <span className="flex items-center gap-1">
-            <Zap size={12} className="text-brand-400" />
-            Powered by CLIP + BLIP-2 + YOLOv8 + Claude
+          <span className="hidden sm:flex items-center gap-1">
+            <Zap size={12} className="text-cyan-300" />
+            CLIP + BLIP + YOLOv8 + Groq
           </span>
         </div>
       </footer>

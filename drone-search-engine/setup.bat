@@ -46,9 +46,9 @@ echo       Backend dependencies installed!
 if not exist .env (
     echo.
     echo WARNING: No .env file found!
-    echo Copy .env.example to .env and add your ANTHROPIC_API_KEY
+    echo Copy .env.example to .env and add your GROQ_API_KEY
     copy .env.example .env
-    echo       Created .env from template — edit it with your API key
+    echo       Created .env from template - edit it with your API keys
 )
 
 cd ..
