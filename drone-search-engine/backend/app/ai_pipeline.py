@@ -1,5 +1,5 @@
 """AI image understanding pipeline for uploaded drone imagery."""
-# redeined
+
 from __future__ import annotations
 
 import logging
@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageEnhance, ImageOps
 
 from .config import get_settings
 
@@ -25,12 +25,94 @@ _clip_preprocess = None
 _clip_tokenizer = None
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _get_torch_device():
+    """Return the preferred inference device without forcing GPU unexpectedly."""
+    import torch
+
+    requested = os.getenv("AI_DEVICE", "").strip().lower()
+    use_gpu = _bool_env("USE_GPU")
+
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+
+    if requested in {"cuda", "gpu"} or (not requested and use_gpu):
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        logger.warning("GPU inference requested but CUDA is unavailable; using CPU")
+        return torch.device("cpu")
+
+    if requested == "mps":
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            return torch.device("mps")
+        logger.warning("MPS inference requested but unavailable; using CPU")
+
+    return torch.device("cpu")
+
+
+def _model_device(model):
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return _get_torch_device()
+
+
+def _move_to_device(inputs, device):
+    if hasattr(inputs, "to"):
+        return inputs.to(device)
+    return {
+        key: value.to(device) if hasattr(value, "to") else value
+        for key, value in inputs.items()
+    }
+
+
+def _resize_to_max_side(image: Image.Image, max_side: int | None) -> Image.Image:
+    if not max_side or max_side <= 0:
+        return image
+
+    width, height = image.size
+    longest_side = max(width, height)
+    if longest_side <= max_side:
+        return image
+
+    scale = max_side / longest_side
+    size = (
+        max(1, round(width * scale)),
+        max(1, round(height * scale)),
+    )
+    return image.resize(size, Image.Resampling.LANCZOS)
+
+
 def _get_ocr():
     global _ocr_reader
     if _ocr_reader is None:
         import easyocr
 
-        use_gpu = os.getenv("USE_GPU", "false").lower() == "true"
+        use_gpu = _bool_env("USE_GPU")
         _ocr_reader = easyocr.Reader(["en"], gpu=use_gpu)
         logger.info("EasyOCR loaded")
     return _ocr_reader
@@ -44,6 +126,7 @@ def _get_blip():
         model_name = os.getenv("BLIP_MODEL_NAME", "Salesforce/blip-image-captioning-base")
         _blip_processor = BlipProcessor.from_pretrained(model_name)
         _blip_model = BlipForConditionalGeneration.from_pretrained(model_name)
+        _blip_model.to(_get_torch_device())
         _blip_model.eval()
         logger.info("BLIP captioning model loaded: %s", model_name)
     return _blip_processor, _blip_model
@@ -99,23 +182,39 @@ def _get_clip():
             pretrained=pretrained,
         )
         _clip_tokenizer = open_clip.get_tokenizer(model_name)
+        _clip_model.to(_get_torch_device())
         _clip_model.eval()
         logger.info("CLIP model loaded: %s / %s", model_name, pretrained)
     return _clip_model, _clip_preprocess, _clip_tokenizer
 
 
-def _open_rgb_image(image_path: str) -> Image.Image:
-    image = Image.open(image_path)
-    image = ImageOps.exif_transpose(image)
-    return image.convert("RGB")
+def _open_rgb_image(image_path: str, max_side: int | None = None) -> Image.Image:
+    with Image.open(image_path) as image:
+        image = ImageOps.exif_transpose(image)
+        rgb_image = image.convert("RGB")
+
+    return _resize_to_max_side(rgb_image, max_side)
 
 
 def extract_ocr_text(image_path: str) -> str:
     """Extract visible text from an image using EasyOCR."""
     try:
         reader = _get_ocr()
-        results = reader.readtext(image_path)
-        texts = [str(result[1]).strip() for result in results if result[2] > 0.3 and str(result[1]).strip()]
+        max_side = _int_env("OCR_IMAGE_MAX_SIDE", 2048)
+        confidence_threshold = _float_env("OCR_CONFIDENCE_THRESHOLD", 0.3)
+
+        with _open_rgb_image(image_path, max_side=max_side) as image:
+            if _bool_env("OCR_ENHANCE_IMAGE", True):
+                image = ImageEnhance.Contrast(image).enhance(1.25)
+                image = ImageEnhance.Sharpness(image).enhance(1.1)
+            ocr_image = np.asarray(image).copy()
+
+        results = reader.readtext(ocr_image)
+        texts = [
+            str(result[1]).strip()
+            for result in results
+            if float(result[2]) > confidence_threshold and str(result[1]).strip()
+        ]
         return " | ".join(texts)[:2000]
     except Exception:
         logger.exception("OCR failed for %s", Path(image_path).name)
@@ -128,12 +227,16 @@ def generate_caption(image_path: str) -> str:
         import torch
 
         processor, model = _get_blip()
-        with _open_rgb_image(image_path) as image:
-            image = image.resize((384, 384))
+        device = _model_device(model)
+        max_side = _int_env("BLIP_IMAGE_MAX_SIDE", 1024)
+        max_new_tokens = _int_env("BLIP_MAX_NEW_TOKENS", 50)
+
+        with _open_rgb_image(image_path, max_side=max_side) as image:
             inputs = processor(image, return_tensors="pt")
 
-        with torch.no_grad():
-            output = model.generate(**inputs, max_new_tokens=50)
+        inputs = _move_to_device(inputs, device)
+        with torch.inference_mode():
+            output = model.generate(**inputs, max_new_tokens=max_new_tokens)
         caption = processor.decode(output[0], skip_special_tokens=True)
         return caption.strip()[:500]
     except Exception:
@@ -145,7 +248,17 @@ def detect_objects(image_path: str) -> list[str]:
     """Detect objects using YOLO."""
     try:
         model = _get_yolo()
-        results = model(image_path, verbose=False, conf=0.3)
+        device = _get_torch_device()
+        device_arg = 0 if device.type == "cuda" else device.type
+        confidence = _float_env("YOLO_CONFIDENCE", 0.3)
+        image_size = _int_env("YOLO_IMAGE_SIZE", 960)
+        results = model(
+            image_path,
+            verbose=False,
+            conf=confidence,
+            imgsz=image_size,
+            device=device_arg,
+        )
 
         detected: list[str] = []
         for result in results:
@@ -162,26 +275,28 @@ def detect_objects(image_path: str) -> list[str]:
 
 
 def extract_dominant_colors(image_path: str, k: int = 3) -> list[str]:
-    """Extract top-k dominant colors using K-means clustering."""
+    """Extract top-k dominant colors from a resized image sample."""
     try:
-        import cv2
-        from sklearn.cluster import KMeans
+        color_count = max(1, min(k, 8))
+        max_side = _int_env("COLOR_SAMPLE_MAX_SIDE", 160)
 
-        img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError("OpenCV could not read image")
-
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (100, 100))
-        pixels = img.reshape(-1, 3).astype(np.float32)
-
-        kmeans = KMeans(n_clusters=max(1, min(k, 8)), n_init=10, random_state=42)
-        kmeans.fit(pixels)
+        with _open_rgb_image(image_path, max_side=max_side) as image:
+            quantized = image.quantize(
+                colors=color_count,
+                method=Image.Quantize.MEDIANCUT,
+                dither=Image.Dither.NONE,
+            )
+            palette = quantized.getpalette() or []
+            color_bins = quantized.getcolors(maxcolors=image.width * image.height) or []
 
         colors = []
-        for center in kmeans.cluster_centers_:
-            red, green, blue = int(center[0]), int(center[1]), int(center[2])
+        for _, palette_index in sorted(color_bins, reverse=True):
+            offset = palette_index * 3
+            red, green, blue = palette[offset : offset + 3]
             colors.append(f"#{red:02x}{green:02x}{blue:02x}")
+            if len(colors) == color_count:
+                break
+
         return colors
     except Exception:
         logger.exception("Color extraction failed for %s", Path(image_path).name)
@@ -206,10 +321,14 @@ def generate_clip_embedding(image_path: str) -> list[float]:
     import torch
 
     model, preprocess, _ = _get_clip()
-    with _open_rgb_image(image_path) as image:
+    device = _model_device(model)
+    max_side = _int_env("CLIP_IMAGE_MAX_SIDE", 2048)
+
+    with _open_rgb_image(image_path, max_side=max_side) as image:
         image_tensor = preprocess(image).unsqueeze(0)
 
-    with torch.no_grad():
+    image_tensor = image_tensor.to(device)
+    with torch.inference_mode():
         embedding = model.encode_image(image_tensor)
         embedding = embedding / embedding.norm(dim=-1, keepdim=True)
 
@@ -227,8 +346,9 @@ def text_to_embedding(text: str) -> list[float]:
         f"satellite view of {safe_text}"
     )
 
-    tokens = tokenizer([expanded])
-    with torch.no_grad():
+    device = _model_device(model)
+    tokens = tokenizer([expanded]).to(device)
+    with torch.inference_mode():
         embedding = model.encode_text(tokens)
         embedding = embedding / embedding.norm(dim=-1, keepdim=True)
 

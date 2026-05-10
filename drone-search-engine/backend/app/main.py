@@ -24,6 +24,7 @@ from .ai_pipeline import generate_clip_embedding, process_image, text_to_embeddi
 from .cloudinary_helper import upload_to_cloudinary
 from .config import get_settings
 from .database import (
+    get_connection,
     get_all_images,
     get_all_processed_images,
     get_image_by_id,
@@ -35,7 +36,13 @@ from .database import (
     update_image_processing_state,
 )
 from .report_generator import export_report_pdf, generate_site_report
-from .vector_store import init_qdrant, search_similar, upsert_embedding
+from .vector_store import (
+    VectorStoreUnavailable,
+    get_vector_store_status,
+    init_qdrant,
+    search_similar,
+    upsert_embedding,
+)
 
 
 settings = get_settings()
@@ -61,7 +68,10 @@ async def lifespan(_: FastAPI):
     settings.images_dir.mkdir(parents=True, exist_ok=True)
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
     init_db()
-    init_qdrant()
+    if init_qdrant():
+        logger.info("Qdrant vector store ready")
+    else:
+        logger.warning("Qdrant vector store unavailable; uploads will work but semantic search is degraded")
     logger.info("%s ready", settings.app_name)
     yield
 
@@ -344,8 +354,15 @@ async def search_images(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Search query cannot be empty")
 
     try:
+        vector_status = get_vector_store_status(check=True)
+        if not vector_status["available"]:
+            raise VectorStoreUnavailable(vector_status.get("error") or "Qdrant vector store is unavailable.")
+
         query_embedding = text_to_embedding(query)
         qdrant_results = search_similar(query_embedding, top_k=request.top_k)
+    except VectorStoreUnavailable as exc:
+        logger.warning("Search unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail=f"Vector search is unavailable: {exc}") from exc
     except Exception as exc:
         logger.exception("Search failed")
         raise HTTPException(status_code=503, detail="Search service is unavailable") from exc
@@ -458,11 +475,34 @@ async def export_report():
     )
 
 
+def _database_health() -> dict:
+    try:
+        with get_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+        return {"available": True, "error": None}
+    except Exception as exc:
+        logger.exception("Database health check failed")
+        return {"available": False, "error": str(exc) or exc.__class__.__name__}
+
+
 @app.get("/health")
 async def health():
+    database_status = _database_health()
+    vector_status = get_vector_store_status(check=True)
+
+    status = "healthy"
+    if not database_status["available"]:
+        status = "unhealthy"
+    elif not vector_status["available"]:
+        status = "degraded"
+
     return {
-        "status": "healthy",
+        "status": status,
         "version": settings.app_version,
         "environment": settings.environment,
+        "services": {
+            "database": database_status,
+            "vector_store": vector_status,
+        },
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

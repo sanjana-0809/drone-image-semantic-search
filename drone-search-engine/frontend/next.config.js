@@ -1,13 +1,35 @@
 /** @type {import('next').NextConfig} */
 
-function backendUrl() {
-  const raw = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+function parseHttpUrl(raw, envName) {
   const parsed = new URL(raw);
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('BACKEND_URL must use http or https');
+    throw new Error(`${envName} must use http or https`);
   }
-  return parsed.href.replace(/\/$/, '');
+  return parsed;
 }
+
+function backendUrl() {
+  const raw = process.env.BACKEND_URL || 'http://localhost:8000';
+  return parseHttpUrl(raw, 'BACKEND_URL').href.replace(/\/$/, '');
+}
+
+function optionalOrigin(raw) {
+  if (!raw) return null;
+  try {
+    return parseHttpUrl(raw, 'NEXT_PUBLIC_API_URL').origin;
+  } catch {
+    return null;
+  }
+}
+
+const backendTarget = backendUrl();
+const backendOrigin = new URL(backendTarget).origin;
+const apiOrigins = Array.from(new Set([
+  'http://localhost:8000',
+  'http://127.0.0.1:8000',
+  backendOrigin,
+  optionalOrigin(process.env.NEXT_PUBLIC_API_URL),
+].filter(Boolean)));
 
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -25,8 +47,8 @@ const securityHeaders = [
       "object-src 'none'",
       "frame-ancestors 'none'",
       "form-action 'self'",
-      "img-src 'self' blob: data: http://localhost:8000 http://127.0.0.1:8000 https:",
-      "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https:",
+      `img-src 'self' blob: data: ${apiOrigins.join(' ')} https:`,
+      `connect-src 'self' ${apiOrigins.join(' ')} https:`,
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
@@ -49,7 +71,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `${backendUrl()}/:path*`,
+        destination: `${backendTarget}/:path*`,
       },
     ];
   },

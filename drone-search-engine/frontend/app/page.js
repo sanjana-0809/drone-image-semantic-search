@@ -5,7 +5,7 @@ import { Search, Upload, FileText, Satellite, Zap, AlertTriangle } from 'lucide-
 import SearchPage from './components/SearchPage';
 import UploadPage from './components/UploadPage';
 import ReportPage from './components/ReportPage';
-import { getStats } from '../lib/api';
+import { checkBackendHealth, getStats } from '../lib/api';
 
 const tabs = [
   { id: 'search', label: 'Search', icon: Search },
@@ -16,12 +16,41 @@ const tabs = [
 export default function Home() {
   const [activeTab, setActiveTab] = useState('search');
   const [stats, setStats] = useState(null);
+  const [backendHealth, setBackendHealth] = useState(null);
+  const [backendError, setBackendError] = useState('');
 
   useEffect(() => {
     getStats()
       .then(setStats)
       .catch(() => setStats(null));
+
+    let cancelled = false;
+    checkBackendHealth()
+      .then((health) => {
+        if (cancelled) return;
+        setBackendHealth(health);
+        setBackendError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setBackendHealth(null);
+        setBackendError(err.message || 'Backend unavailable');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab]);
+
+  const backendStatus = backendError ? 'offline' : backendHealth?.status || 'checking';
+  const backendStatusClass = {
+    healthy: 'bg-emerald-500',
+    degraded: 'bg-amber-400',
+    unhealthy: 'bg-red-500',
+    offline: 'bg-red-500',
+    checking: 'bg-slate-500',
+  }[backendStatus] || 'bg-slate-500';
+  const backendTitle = backendError || backendHealth?.services?.vector_store?.error || 'Backend connected';
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
@@ -37,8 +66,13 @@ export default function Home() {
             </div>
           </div>
 
-          {stats && (
-            <div className="hidden lg:flex items-center gap-4 text-xs font-mono text-[var(--text-muted)]">
+          <div className="hidden lg:flex items-center gap-4 text-xs font-mono text-[var(--text-muted)]">
+            <span className="flex items-center gap-1.5" title={backendTitle}>
+              <span className={`w-2 h-2 rounded-full ${backendStatusClass}`} />
+              backend {backendStatus}
+            </span>
+            {stats && (
+              <>
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 {stats.total_images} images
@@ -50,8 +84,9 @@ export default function Home() {
                   {stats.failed_images} failed
                 </span>
               )}
-            </div>
-          )}
+              </>
+            )}
+          </div>
 
           <nav className="flex gap-1" aria-label="Primary">
             {tabs.map((tab) => {

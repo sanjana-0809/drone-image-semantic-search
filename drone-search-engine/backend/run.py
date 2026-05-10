@@ -3,7 +3,12 @@
 import os
 
 import uvicorn
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv() -> bool:
+        return False
 
 load_dotenv()
 

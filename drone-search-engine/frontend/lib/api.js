@@ -5,8 +5,13 @@
 
 const directApiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '');
 const API_BASE = directApiBase || '/api';
+const HEALTH_TIMEOUT_MS = 5000;
 const DEFAULT_TIMEOUT_MS = 30000;
 const REPORT_TIMEOUT_MS = 120000;
+const LOCAL_BACKEND_ORIGINS = new Set([
+  'http://localhost:8000',
+  'http://127.0.0.1:8000',
+]);
 
 export const MAX_UPLOAD_SIZE_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB || 25);
 export const ALLOWED_IMAGE_TYPES = new Set([
@@ -22,6 +27,10 @@ export const ALLOWED_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', '
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
+}
+
+function isHtmlResponse(message) {
+  return /^\s*<!doctype html/i.test(message) || /^\s*<html/i.test(message);
 }
 
 function normalizeApiError(message) {
@@ -52,6 +61,9 @@ async function request(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
         const text = await res.text();
         if (text) message = text;
       }
+      if (isHtmlResponse(message)) {
+        message = `Backend request failed with HTTP ${res.status}. Check that the FastAPI backend is running and that BACKEND_URL points to it.`;
+      }
       throw new Error(message || `Request failed with status ${res.status}`);
     }
 
@@ -59,6 +71,9 @@ async function request(path, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   } catch (err) {
     if (err.name === 'AbortError') {
       throw new Error('Request timed out. The backend may still be processing heavy AI work.');
+    }
+    if (err instanceof TypeError) {
+      throw new Error(`Cannot reach the backend through ${API_BASE}. Start the FastAPI backend or fix BACKEND_URL/NEXT_PUBLIC_API_URL.`);
     }
     throw err;
   } finally {
@@ -85,13 +100,18 @@ export function validateImageFile(file) {
 
 export function fixImageUrl(url) {
   if (!url || typeof url !== 'string') return '';
-  if (url.startsWith('http://localhost:8000')) {
-    return url.replace('http://localhost:8000', API_BASE);
-  }
   if (url.startsWith('/images/')) {
     return `${API_BASE}${url}`;
   }
   if (url.startsWith('/api/images/') || url.startsWith('https://') || url.startsWith('http://')) {
+    try {
+      const parsed = new URL(url);
+      if (!directApiBase && LOCAL_BACKEND_ORIGINS.has(parsed.origin)) {
+        return `${API_BASE}${parsed.pathname}${parsed.search}`;
+      }
+    } catch {
+      return '';
+    }
     return url;
   }
   return '';
@@ -125,6 +145,11 @@ export async function uploadImages(files) {
     method: 'POST',
     body: formData,
   }, REPORT_TIMEOUT_MS);
+  return res.json();
+}
+
+export async function checkBackendHealth() {
+  const res = await request('/health', {}, HEALTH_TIMEOUT_MS);
   return res.json();
 }
 

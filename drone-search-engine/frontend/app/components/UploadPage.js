@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { Upload, Image, CheckCircle, AlertCircle, Loader2, X } from 'lucide-react';
-import { MAX_UPLOAD_SIZE_MB, uploadImages, validateImageFile } from '../../lib/api';
+import { MAX_UPLOAD_SIZE_MB, checkBackendHealth, uploadImages, validateImageFile } from '../../lib/api';
 
 export default function UploadPage({ onComplete }) {
   const [files, setFiles] = useState([]);
@@ -11,6 +11,7 @@ export default function UploadPage({ onComplete }) {
   const [results, setResults] = useState([]);
   const [rejections, setRejections] = useState([]);
   const [processingMsg, setProcessingMsg] = useState('');
+  const [backendError, setBackendError] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef(null);
 
@@ -31,6 +32,7 @@ export default function UploadPage({ onComplete }) {
     setRejections(rejected);
     setResults([]);
     setProcessingMsg('');
+    setBackendError('');
   }, []);
 
   const handleDrag = (e) => {
@@ -54,9 +56,22 @@ export default function UploadPage({ onComplete }) {
     setUploading(true);
     setResults([]);
     setRejections([]);
+    setBackendError('');
     setProgress({ done: 0, total: files.length });
 
     const uploadResults = [];
+
+    try {
+      const health = await checkBackendHealth();
+      if (!['healthy', 'degraded'].includes(health.status)) {
+        throw new Error('Backend health check is not passing.');
+      }
+    } catch (err) {
+      setUploading(false);
+      setProgress({ done: 0, total: files.length });
+      setBackendError(err.message || 'Backend is unavailable.');
+      return;
+    }
 
     for (let i = 0; i < files.length; i += 1) {
       try {
@@ -111,6 +126,16 @@ export default function UploadPage({ onComplete }) {
               </p>
             ))}
           </div>
+        </div>
+      )}
+
+      {backendError && (
+        <div className="mb-4 p-4 rounded-lg border border-red-500/30 bg-red-500/10">
+          <div className="flex items-center gap-2 text-sm text-red-300 font-medium mb-1">
+            <AlertCircle size={16} />
+            Backend connection failed
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">{backendError}</p>
         </div>
       )}
 
