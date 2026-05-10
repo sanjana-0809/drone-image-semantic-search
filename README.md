@@ -72,6 +72,33 @@ Frontend default: `http://localhost:3000`
 
 The frontend uses `/api` rewrites by default. Set `BACKEND_URL` for the server-side rewrite target, or set `NEXT_PUBLIC_API_URL` only when the browser must call the backend directly.
 
+## Deployment
+
+The frontend and backend are separate apps. A deployed frontend cannot reach a backend at `localhost:8000`; in production, `localhost` means the frontend hosting container, not your computer and not the FastAPI service.
+
+Deploy the backend first, then set these variables before deploying the frontend:
+
+Frontend environment:
+
+```env
+BACKEND_URL=https://sanjana-0809-drone-semantic-search-api.hf.space
+# Or, if the browser should call the backend directly:
+# NEXT_PUBLIC_API_URL=https://sanjana-0809-drone-semantic-search-api.hf.space
+NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB=25
+```
+
+Backend environment:
+
+```env
+BASE_URL=https://sanjana-0809-drone-semantic-search-api.hf.space
+FRONTEND_URL=https://your-deployed-frontend.example.com
+CORS_ORIGINS=https://your-deployed-frontend.example.com
+```
+
+The backend Dockerfile exposes port `7860`, which works well for Hugging Face Spaces. If you deploy the backend on Render, Railway, Fly.io, or another container host, use that provider's public service URL as `BACKEND_URL` in the frontend deployment.
+
+On Vercel, add frontend variables in Project Settings -> Environment Variables. Redeploy after changing them. The build now fails clearly if a hosted deployment would otherwise point to `localhost:8000`.
+
 ## Backend Environment
 
 ```env
