@@ -7,6 +7,7 @@ const directApiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '');
 const API_BASE = directApiBase || '/api';
 const HEALTH_TIMEOUT_MS = 5000;
 const DEFAULT_TIMEOUT_MS = 30000;
+const SEARCH_TIMEOUT_MS = 180000;
 const REPORT_TIMEOUT_MS = 120000;
 const LOCAL_BACKEND_ORIGINS = new Set([
   'http://localhost:8000',
@@ -158,7 +159,7 @@ export async function searchImages(query, topK = 10) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, top_k: topK }),
-  });
+  }, SEARCH_TIMEOUT_MS);
   const data = await res.json();
   return data.map(normalizeImage);
 }

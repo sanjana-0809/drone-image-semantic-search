@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Drone Search Engine - Skylark Drones',
+  title: 'Drone Search Engine -  Drones',
   description: 'AI-powered semantic search through aerial drone imagery using natural language queries',
 };
 

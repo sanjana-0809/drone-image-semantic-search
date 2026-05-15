@@ -1,7 +1,7 @@
 #!/bin/bash
 echo "===================================================="
 echo " Drone Image Semantic Search Engine — Setup Script"
-echo " Skylark Drones Alignment Project"
+echo "  Drones Alignment Project"
 echo "===================================================="
 echo ""
 

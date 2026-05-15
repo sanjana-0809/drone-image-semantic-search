@@ -6,6 +6,7 @@ import logging
 import os
 import uuid
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from .config import get_settings
 
@@ -31,9 +32,28 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _qdrant_url() -> str | None:
+    if not settings.qdrant_url:
+        return None
+
+    parsed = urlparse(settings.qdrant_url)
+    if not parsed.scheme:
+        parsed = urlparse(f"https://{settings.qdrant_url}")
+
+    hostname = parsed.hostname or ""
+    if hostname.endswith(".cloud.qdrant.io") and parsed.port in {6333, 6334}:
+        netloc = hostname
+        if parsed.username:
+            netloc = f"{parsed.username}@{netloc}"
+        parsed = parsed._replace(netloc=netloc)
+
+    return urlunparse(parsed).rstrip("/")
+
+
 def _backend_label() -> str:
-    if settings.qdrant_url:
-        return settings.qdrant_url
+    qdrant_url = _qdrant_url()
+    if qdrant_url:
+        return qdrant_url
     return f"{settings.qdrant_host}:{settings.qdrant_port}"
 
 
@@ -58,9 +78,10 @@ def _get_client() -> Any:
     if _client is None:
         from qdrant_client import QdrantClient
 
-        if settings.qdrant_url:
+        qdrant_url = _qdrant_url()
+        if qdrant_url:
             _client = QdrantClient(
-                url=settings.qdrant_url,
+                url=qdrant_url,
                 api_key=settings.qdrant_api_key,
                 timeout=_float_env("QDRANT_TIMEOUT_SECONDS", 3.0),
             )

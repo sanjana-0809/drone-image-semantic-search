@@ -95,6 +95,17 @@ app.add_middleware(
 app.mount("/images", StaticFiles(directory=settings.images_dir), name="images")
 
 
+@app.get("/")
+async def root():
+    """Simple landing response for hosted health probes and the Hugging Face App tab."""
+    return {
+        "name": settings.app_name,
+        "status": "online",
+        "health": "/health",
+        "docs": "/docs",
+    }
+
+
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
     top_k: int = Field(default=10, ge=1, le=50)

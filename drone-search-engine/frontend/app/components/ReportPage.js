@@ -199,7 +199,7 @@ export default function ReportPage() {
       {report && !generating && (
         <div className="card-glow p-8">
           <div className="border-b border-[var(--border)] pb-6 mb-6">
-            <p className="text-xs text-cyan-300 font-mono tracking-wider mb-2">SKYLARK DRONES</p>
+            <p className="text-xs text-cyan-300 font-mono tracking-wider mb-2"> DRONES</p>
             <h2 className="text-2xl font-bold mb-2">
               {report.title || 'Site Intelligence Report'}
             </h2>
