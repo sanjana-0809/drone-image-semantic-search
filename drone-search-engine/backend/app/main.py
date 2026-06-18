@@ -6,15 +6,17 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
+import gc
 import json
 import logging
 import os
 import re
+import threading
 import uuid
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
@@ -25,6 +27,8 @@ from .cloudinary_helper import upload_to_cloudinary
 from .config import get_settings
 from .database import (
     get_connection,
+    clear_all_data,
+    count_images,
     get_all_images,
     get_all_processed_images,
     get_image_by_id,
@@ -38,8 +42,10 @@ from .database import (
 from .report_generator import export_report_pdf, generate_site_report
 from .vector_store import (
     VectorStoreUnavailable,
+    count_points,
     get_vector_store_status,
     init_qdrant,
+    reset_collection,
     search_similar,
     upsert_embedding,
 )
@@ -70,10 +76,34 @@ async def lifespan(_: FastAPI):
     init_db()
     if init_qdrant():
         logger.info("Qdrant vector store ready")
+        _reconcile_vector_store()
     else:
         logger.warning("Qdrant vector store unavailable; uploads will work but semantic search is degraded")
     logger.info("%s ready", settings.app_name)
     yield
+
+
+def _reconcile_vector_store() -> None:
+    """Keep the vector store consistent with the database on ephemeral hosting.
+
+    When the app runs without persistent storage, the SQLite database is wiped on
+    each restart while the external Qdrant collection survives. That leaves vectors
+    with no metadata to resolve to, which makes search return empty results. If the
+    database is empty but the collection still holds points, those points are
+    orphaned, so clear them to start from a consistent, empty state. This never runs
+    when the database has data (e.g. when persistent storage is configured).
+    """
+    try:
+        if count_images() == 0:
+            orphaned = count_points() or 0
+            if orphaned > 0:
+                removed = reset_collection()
+                logger.warning(
+                    "Database is empty but vector store held %d point(s); cleared orphaned vectors",
+                    removed,
+                )
+    except Exception:
+        logger.exception("Vector store reconcile skipped")
 
 
 app = FastAPI(
@@ -91,6 +121,28 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
     max_age=600,
 )
+
+# Paths reachable without the access key: health/landing probes, API docs, and
+# image files (loaded by <img> tags that cannot send an Authorization header).
+_OPEN_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
+_OPEN_PREFIXES = ("/images",)
+
+
+@app.middleware("http")
+async def access_guard(request, call_next):
+    """Require a shared access key on protected routes when APP_ACCESS_KEY is set.
+
+    Auth is disabled (open) when APP_ACCESS_KEY is unset, so the app still runs
+    without configuration. The frontend proxy attaches this key server-side, so
+    it is never exposed to the browser.
+    """
+    key = settings.app_access_key
+    path = request.url.path
+    is_open = path in _OPEN_PATHS or path.startswith(_OPEN_PREFIXES)
+    if key and request.method != "OPTIONS" and not is_open:
+        if request.headers.get("authorization") != f"Bearer {key}":
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 app.mount("/images", StaticFiles(directory=settings.images_dir), name="images")
 
@@ -116,6 +168,7 @@ class SearchResult(BaseModel):
     filename: str
     image_url: str
     similarity_score: float
+    above_threshold: bool = True
     caption: Optional[str] = None
     detected_objects: Optional[List[str]] = None
     dominant_colors: Optional[List[str]] = None
@@ -240,24 +293,51 @@ async def _store_upload(file: UploadFile) -> dict:
         await file.close()
 
 
+# Cap how many images run the heavy AI pipeline at once. The CV/embedding models
+# are memory-hungry, and several concurrent inferences will OOM a small instance
+# (e.g. the 16 GB free tier). Default to 1 so uploads queue and process serially.
+_processing_slots = threading.Semaphore(max(1, int(os.getenv("MAX_CONCURRENT_PROCESSING", "1"))))
+
+
 def _process_image_job(image_id: str, file_path: str, filename: str) -> None:
-    """Run AI processing, vector indexing, and optional cloud upload off the request path."""
-    update_image_processing_state(image_id, "processing")
-    ai_results: dict = {}
-
+    """Serialized wrapper around the AI pipeline to bound peak memory usage."""
+    acquired = _processing_slots.acquire(timeout=float(os.getenv("PROCESSING_QUEUE_TIMEOUT", "600")))
+    if not acquired:
+        logger.error("Processing slot wait timed out for %s", filename)
+        update_image_processing_state(image_id, "failed", "Server was busy; processing timed out. Try again.")
+        return
     try:
-        ai_results = process_image(file_path)
-        update_image_ai_data(
-            image_id,
-            ai_results,
-            mark_processed=True,
-            processing_status="processed",
-            processing_error=None,
-        )
-    except Exception as exc:
-        logger.exception("AI pipeline failed for %s", filename)
-        update_image_processing_state(image_id, "failed", f"AI pipeline failed: {exc}")
+        _run_image_pipeline(image_id, file_path, filename)
+    finally:
+        _processing_slots.release()
+        # Release intermediate tensors/buffers between images so memory does not creep.
+        gc.collect()
 
+
+def _run_image_pipeline(image_id: str, file_path: str, filename: str) -> None:
+    """Run AI processing, vector indexing, and optional cloud upload off the request path.
+
+    Status reflects what actually succeeded:
+      - ``failed``    embedding/indexing failed -> the image is not searchable.
+      - ``partial``   searchable, but one or more metadata stages failed.
+      - ``processed`` searchable with full metadata.
+    """
+    update_image_processing_state(image_id, "processing")
+
+    ai_results: dict = {}
+    stage_errors: dict[str, str] = {}
+    try:
+        ai_results, stage_errors = process_image(file_path)
+    except Exception as exc:  # unexpected: the pipeline itself is resilient per-stage
+        logger.exception("AI pipeline crashed for %s", filename)
+        stage_errors = {"pipeline": str(exc) or exc.__class__.__name__}
+
+    # Persist whatever metadata we extracted, even if some stages failed.
+    if ai_results:
+        update_image_ai_data(image_id, ai_results)
+
+    # Embedding + indexing decides whether the image is searchable at all.
+    indexed = False
     try:
         embedding = generate_clip_embedding(file_path)
         upsert_embedding(
@@ -269,8 +349,31 @@ def _process_image_job(image_id: str, file_path: str, filename: str) -> None:
                 "objects": ai_results.get("detected_objects", []),
             },
         )
+        indexed = True
     except Exception:
         logger.exception("Embedding/indexing failed for %s", filename)
+
+    if not indexed:
+        update_image_processing_state(
+            image_id, "failed", "Embedding/indexing failed; image is not searchable."
+        )
+    elif stage_errors:
+        failed = ", ".join(sorted(stage_errors))
+        update_image_ai_data(
+            image_id,
+            {},
+            mark_processed=True,
+            processing_status="partial",
+            processing_error=f"Searchable, but these stages failed: {failed}.",
+        )
+    else:
+        update_image_ai_data(
+            image_id,
+            {},
+            mark_processed=True,
+            processing_status="processed",
+            processing_error=None,
+        )
 
     try:
         cloudinary_url = upload_to_cloudinary(file_path, image_id)
@@ -378,12 +481,16 @@ async def search_images(request: SearchRequest):
         logger.exception("Search failed")
         raise HTTPException(status_code=503, detail="Search service is unavailable") from exc
 
-    qdrant_results = [
-        hit for hit in qdrant_results if hit["score"] >= settings.search_score_threshold
-    ]
+    # CLIP similarity scores for relevant aerial imagery often sit just under the
+    # threshold, so a strict filter can return nothing even when a clearly relevant
+    # image exists. Prefer confident matches, but fall back to the closest few
+    # (flagged as below-threshold) instead of an empty, confusing result set.
+    threshold = settings.search_score_threshold
+    strong_hits = [hit for hit in qdrant_results if hit["score"] >= threshold]
+    selected_hits = strong_hits or qdrant_results[: settings.search_fallback_results]
 
     results = []
-    for hit in qdrant_results:
+    for hit in selected_hits:
         image = get_image_by_id(hit["image_id"])
         if image:
             results.append(
@@ -392,6 +499,7 @@ async def search_images(request: SearchRequest):
                     filename=image["filename"],
                     image_url=_public_image_url(image),
                     similarity_score=round(hit["score"], 4),
+                    above_threshold=hit["score"] >= threshold,
                     caption=image.get("caption"),
                     detected_objects=image.get("detected_objects"),
                     dominant_colors=image.get("dominant_colors"),
@@ -400,6 +508,46 @@ async def search_images(request: SearchRequest):
             )
 
     return results
+
+
+@app.post("/clear")
+async def clear_all(confirm: bool = False):
+    """Delete all images, vectors, reports, and stored files. Requires confirm=true.
+
+    This is a destructive maintenance action with no authentication; in a
+    multi-user/production deployment it must be protected behind auth.
+    """
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Pass confirm=true to clear all data.")
+
+    deleted = clear_all_data()
+
+    removed_files = 0
+    for path in settings.images_dir.glob("*"):
+        if path.is_file() and path.name != ".gitkeep":
+            try:
+                path.unlink()
+                removed_files += 1
+            except OSError:
+                logger.warning("Could not delete image file %s", path.name)
+
+    vectors_removed = 0
+    try:
+        vectors_removed = reset_collection()
+    except Exception:
+        logger.exception("Vector store reset during clear failed")
+
+    logger.info(
+        "Cleared collection: %d images, %d files, %d vectors, %d reports",
+        deleted["images"], removed_files, vectors_removed, deleted["reports"],
+    )
+    return {
+        "status": "cleared",
+        "images_deleted": deleted["images"],
+        "files_deleted": removed_files,
+        "vectors_deleted": vectors_removed,
+        "reports_deleted": deleted["reports"],
+    }
 
 
 @app.get("/images-list", response_model=List[ImageInfo])

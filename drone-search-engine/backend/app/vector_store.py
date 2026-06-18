@@ -190,6 +190,42 @@ def get_collection_info() -> dict[str, int | None]:
     }
 
 
+def count_points() -> int | None:
+    """Return the number of stored vectors, or None if the store is unavailable."""
+    try:
+        _ensure_ready()
+        info = _get_client().get_collection(COLLECTION_NAME)
+        return int(info.points_count or 0)
+    except Exception:
+        return None
+
+
+def reset_collection() -> int:
+    """Delete and recreate the collection. Returns the number of points removed.
+
+    Used to drop vectors orphaned by ephemeral hosting (where the relational
+    database is wiped on restart but this external store persists).
+    """
+    global _collection_ready, _last_error
+    from qdrant_client.models import Distance, VectorParams
+
+    client = _get_client()
+    removed = 0
+    try:
+        removed = int(client.get_collection(COLLECTION_NAME).points_count or 0)
+    except Exception:
+        removed = 0
+
+    client.delete_collection(COLLECTION_NAME)
+    client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
+    )
+    _collection_ready = True
+    _last_error = None
+    return removed
+
+
 def get_vector_store_status(*, check: bool = True) -> dict[str, Any]:
     """Return safe health details for the vector search dependency."""
     if check:

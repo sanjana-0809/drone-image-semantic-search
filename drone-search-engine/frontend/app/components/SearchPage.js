@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, Eye, X, Layers, ScanLine, Palette, AlertCircle } from 'lucide-react';
-import { searchImages } from '../../lib/api';
+import { Search, Eye, X, Layers, ScanLine, Palette, AlertCircle, Boxes, Tag } from 'lucide-react';
+import { searchImages, getStats, getImagesList } from '../../lib/api';
 
 const exampleQueries = [
   'construction site with cranes',
@@ -11,6 +11,10 @@ const exampleQueries = [
   'solar panels on rooftop',
   'green vegetation area',
 ];
+
+function truncate(text, max = 60) {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
 
 function isHexColor(color) {
   return /^#[0-9a-fA-F]{6}$/.test(color);
@@ -23,6 +27,55 @@ export default function SearchPage() {
   const [searched, setSearched] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [error, setError] = useState('');
+  const [collection, setCollection] = useState(null);
+  const [loadingCollection, setLoadingCollection] = useState(true);
+
+  // Build a live "what's in your collection" overview so users search what is
+  // actually indexed (real objects + captions) instead of guessing.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [stats, images] = await Promise.all([getStats(), getImagesList()]);
+        if (cancelled) return;
+        const objects = Object.entries(stats.top_objects || {})
+          .sort((a, b) => b[1] - a[1])
+          .map(([name, count]) => ({ name, count }));
+        const seen = new Set();
+        const captions = [];
+        const colorCounts = {};
+        for (const img of images) {
+          const caption = (img.caption || '').trim();
+          const key = caption.toLowerCase();
+          if (caption && captions.length < 6 && !seen.has(key)) {
+            seen.add(key);
+            captions.push(caption);
+          }
+          for (const color of img.dominant_colors || []) {
+            if (isHexColor(color)) colorCounts[color] = (colorCounts[color] || 0) + 1;
+          }
+        }
+        const colors = Object.entries(colorCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 12)
+          .map(([color]) => color);
+        setCollection({
+          total: stats.total_images || 0,
+          processed: stats.processed_images || 0,
+          objects,
+          captions,
+          colors,
+        });
+      } catch {
+        if (!cancelled) setCollection(null);
+      } finally {
+        if (!cancelled) setLoadingCollection(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSearch = async (e, overrideQuery) => {
     e?.preventDefault();
@@ -84,17 +137,107 @@ export default function SearchPage() {
         </form>
 
         {!searched && (
-          <div className="flex flex-wrap gap-2 mt-4 justify-center">
-            {exampleQueries.map((example) => (
-              <button
-                key={example}
-                type="button"
-                onClick={(event) => handleSearch(event, example)}
-                className="tag hover:border-cyan-400 hover:text-cyan-300 transition cursor-pointer"
-              >
-                {example}
-              </button>
-            ))}
+          <div className="mt-5">
+            {loadingCollection ? (
+              <div className="text-center text-xs text-[var(--text-muted)]">
+                Loading what&apos;s in your collection…
+              </div>
+            ) : collection && (collection.objects.length > 0 || collection.captions.length > 0 || collection.colors.length > 0) ? (
+              <div className="card-glow p-5 space-y-4 text-left">
+                <div className="flex items-center gap-2">
+                  <Boxes size={16} className="text-cyan-300" />
+                  <span className="text-sm font-medium text-[var(--text-primary)]">
+                    What&apos;s in your collection
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)] ml-auto">
+                    {collection.processed} of {collection.total} indexed
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Every image is indexed by its AI caption, detected objects, dominant colors, and any
+                  text found in it. Click anything below to search it.
+                </p>
+
+                {collection.objects.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                      <Tag size={11} /> Detected objects
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {collection.objects.map((obj) => (
+                        <button
+                          key={obj.name}
+                          type="button"
+                          onClick={(event) => handleSearch(event, obj.name)}
+                          className="tag hover:border-cyan-400 hover:text-cyan-300 transition cursor-pointer"
+                        >
+                          {obj.name} <span className="text-[var(--text-muted)]">×{obj.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {collection.captions.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                      <Layers size={11} /> Example scenes
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {collection.captions.map((caption) => (
+                        <button
+                          key={caption}
+                          type="button"
+                          onClick={(event) => handleSearch(event, caption)}
+                          className="tag hover:border-cyan-400 hover:text-cyan-300 transition cursor-pointer text-left"
+                          title={caption}
+                        >
+                          {truncate(caption)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {collection.colors.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                      <Palette size={11} /> Dominant colors captured
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {collection.colors.map((color) => (
+                        <span
+                          key={color}
+                          className="w-6 h-6 rounded-md border border-white/10"
+                          style={{ backgroundColor: color }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className="text-center text-xs text-[var(--text-muted)] mb-3">
+                  {collection
+                    ? 'No images indexed yet — upload some and they will appear here to search.'
+                    : 'Try an example search:'}
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {exampleQueries.map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={(event) => handleSearch(event, example)}
+                      className="tag hover:border-cyan-400 hover:text-cyan-300 transition cursor-pointer"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -76,14 +76,9 @@ const nextConfig = {
       },
     ];
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${backendTarget}/:path*`,
-      },
-    ];
-  },
+  // /api/* is handled by the authenticated proxy route handler
+  // (app/api/[...path]/route.js), which checks the session cookie and attaches
+  // the backend access key server-side. No static rewrite needed.
 };
 
 module.exports = nextConfig;

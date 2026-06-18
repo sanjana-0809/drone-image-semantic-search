@@ -4,7 +4,9 @@
  */
 
 const directApiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '');
-const API_BASE = directApiBase || '/api';
+// Always route through the same-origin /api proxy so the backend access key stays
+// server-side and the session cookie is checked. Do not call the backend directly.
+const API_BASE = '/api';
 const HEALTH_TIMEOUT_MS = 5000;
 const DEFAULT_TIMEOUT_MS = 30000;
 const SEARCH_TIMEOUT_MS = 180000;
@@ -178,6 +180,15 @@ export async function getImageDetail(imageId) {
 export async function getStats() {
   const res = await request('/stats');
   return res.json();
+}
+
+export async function clearAllImages() {
+  const res = await request('/clear?confirm=true', { method: 'POST' });
+  return res.json();
+}
+
+export async function signOut() {
+  await fetch('/api/auth/logout', { method: 'POST' });
 }
 
 export async function generateReport() {

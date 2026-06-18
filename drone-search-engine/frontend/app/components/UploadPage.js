@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { Upload, Image, CheckCircle, AlertCircle, Loader2, X } from 'lucide-react';
-import { MAX_UPLOAD_SIZE_MB, checkBackendHealth, uploadImages, validateImageFile } from '../../lib/api';
+import { Upload, Image, CheckCircle, AlertCircle, Loader2, X, Layers, ScanLine, Palette, Type, Search, Trash2 } from 'lucide-react';
+import { MAX_UPLOAD_SIZE_MB, checkBackendHealth, uploadImages, validateImageFile, clearAllImages } from '../../lib/api';
 
 export default function UploadPage({ onComplete }) {
   const [files, setFiles] = useState([]);
@@ -13,7 +13,27 @@ export default function UploadPage({ onComplete }) {
   const [processingMsg, setProcessingMsg] = useState('');
   const [backendError, setBackendError] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearMsg, setClearMsg] = useState('');
   const inputRef = useRef(null);
+
+  const handleClear = async () => {
+    if (!window.confirm('Delete ALL indexed images, vectors, and reports? This cannot be undone.')) {
+      return;
+    }
+    setClearing(true);
+    setClearMsg('');
+    try {
+      const res = await clearAllImages();
+      setResults([]);
+      setFiles([]);
+      setClearMsg(`Cleared ${res.images_deleted} image(s). The collection is now empty — upload to start fresh.`);
+    } catch (err) {
+      setClearMsg(err.message || 'Clear failed');
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const handleFiles = useCallback((fileList) => {
     const accepted = [];
@@ -145,6 +165,21 @@ export default function UploadPage({ onComplete }) {
           JPG, PNG, WebP, TIFF, or BMP. Max {MAX_UPLOAD_SIZE_MB} MB per image.
         </p>
       </div>
+
+      {!uploading && results.length === 0 && (
+        <div className="card-glow p-4 mb-6">
+          <p className="text-xs text-[var(--text-secondary)] mb-3">
+            Each image is automatically analyzed and indexed by:
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs text-[var(--text-secondary)]">
+            <div className="flex items-center gap-2"><Layers size={14} className="text-cyan-300 flex-shrink-0" /> AI caption</div>
+            <div className="flex items-center gap-2"><ScanLine size={14} className="text-cyan-300 flex-shrink-0" /> Detected objects</div>
+            <div className="flex items-center gap-2"><Palette size={14} className="text-cyan-300 flex-shrink-0" /> Dominant colors</div>
+            <div className="flex items-center gap-2"><Type size={14} className="text-cyan-300 flex-shrink-0" /> Text in image (OCR)</div>
+            <div className="flex items-center gap-2 col-span-2 sm:col-span-2"><Search size={14} className="text-cyan-300 flex-shrink-0" /> Made searchable by meaning (CLIP)</div>
+          </div>
+        </div>
+      )}
 
       {!uploading && results.length === 0 && (
         <button
@@ -300,6 +335,31 @@ export default function UploadPage({ onComplete }) {
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {!uploading && (
+        <div className="mt-10 pt-6 border-t border-[var(--border)]">
+          {clearMsg && (
+            <p className="text-xs text-center text-[var(--text-muted)] mb-3">{clearMsg}</p>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm text-[var(--text-secondary)]">Reset collection</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                Permanently delete all indexed images, vectors, and reports.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={clearing}
+              className="btn-secondary text-sm py-2 px-4 flex items-center gap-2 whitespace-nowrap border-red-500/40 text-red-300 hover:border-red-400 hover:text-red-200"
+            >
+              {clearing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              Clear all
+            </button>
           </div>
         </div>
       )}

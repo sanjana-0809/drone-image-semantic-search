@@ -171,6 +171,22 @@ def update_image_processing_state(image_id: str, status: str, error: str | None 
     )
 
 
+def count_images() -> int:
+    """Return how many images are recorded in the database."""
+    with get_connection() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM images").fetchone()[0])
+
+
+def clear_all_data() -> dict[str, int]:
+    """Delete all images and reports. Returns how many of each were removed."""
+    with get_connection() as conn:
+        images = int(conn.execute("SELECT COUNT(*) FROM images").fetchone()[0])
+        reports = int(conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0])
+        conn.execute("DELETE FROM images")
+        conn.execute("DELETE FROM reports")
+    return {"images": images, "reports": reports}
+
+
 def get_all_images() -> List[Dict[str, Any]]:
     """Get all images newest first."""
     with get_connection() as conn:

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 from xml.sax.saxutils import escape
 import json
+import logging
 import os
 
 
@@ -123,10 +124,77 @@ Use these exact sections:
 Write professionally, avoid unsupported certainty, and reference the provided counts and clusters."""
 
 
-def generate_site_report(images: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Generate a Site Intelligence Report using the Groq API."""
-    from groq import Groq
+def _fallback_report_content(
+    images: List[Dict[str, Any]],
+    clusters: List[Dict[str, Any]],
+    object_freq: Dict[str, int],
+    color_freq: Dict[str, int],
+) -> str:
+    """Deterministic, data-driven report used when the LLM is unavailable.
 
+    Produces the same six sections as the LLM prompt so PDF export and the UI
+    render identically. This keeps report generation working (degraded, not
+    broken) when GROQ_API_KEY is unset or the Groq call fails.
+    """
+    top_objects = ", ".join(f"{obj} ({n})" for obj, n in list(object_freq.items())[:8]) or "no recognized objects"
+    palette = ", ".join(list(color_freq.keys())[:6]) or "no dominant colors extracted"
+
+    lines = [
+        "1. EXECUTIVE SUMMARY",
+        (
+            f"This report covers {len(images)} aerial images grouped into "
+            f"{len(clusters)} visual theme cluster(s). The analysis below is generated "
+            "directly from extracted captions, detected objects, and dominant colors. "
+            f"The most frequently observed elements are: {top_objects}."
+        ),
+        "2. SCENE BREAKDOWN",
+    ]
+    for cluster in clusters:
+        zone = cluster.get("cluster_id", 0) + 1
+        sample = (cluster.get("captions") or ["No caption available"])[0]
+        objs = ", ".join(cluster.get("top_objects") or []) or "no dominant objects"
+        lines.append(
+            f"Zone {zone}: {cluster.get('size', 0)} image(s). Common objects: {objs}. "
+            f"Representative scene: {sample}."
+        )
+
+    lines += [
+        "3. OBJECT ANALYSIS",
+        (
+            f"Object detection surfaced the following counts: {top_objects}. "
+            "Note that detections come from a general-purpose model; sparse results on "
+            "top-down aerial imagery are expected and do not imply an empty site."
+            if object_freq
+            else
+            "No objects were confidently detected. For top-down aerial imagery this is "
+            "common with a general-purpose detector; treat object counts as a lower bound."
+        ),
+        "4. COLOR AND TERRAIN ANALYSIS",
+        (
+            f"The dominant color palette across the collection is: {palette}. "
+            "Greens typically indicate vegetation or fields, greys indicate built surfaces "
+            "or roads, and dark tones may indicate water or image edges."
+        ),
+        "5. AREAS OF INTEREST",
+        (
+            "Automated flags are based on cluster size and object frequency. Larger clusters "
+            "represent the most repeated scene types; small clusters may warrant a closer "
+            "manual look. No anomaly model is applied in this deterministic summary."
+        ),
+        "6. RECOMMENDATIONS",
+        "Review the largest cluster first, as it represents the dominant site condition.",
+        "Manually inspect any single-image clusters for unusual or noteworthy features.",
+        "Configure GROQ_API_KEY to enable richer, narrative analyst-style reporting.",
+    ]
+    return "\n".join(lines)
+
+
+def generate_site_report(images: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Generate a Site Intelligence Report.
+
+    Uses the Groq LLM when configured; otherwise (or if the LLM call fails) falls
+    back to a deterministic, data-driven report so the feature degrades gracefully.
+    """
     limited_images = images[:MAX_REPORT_IMAGES]
     clusters = _cluster_images(limited_images)
 
@@ -138,17 +206,29 @@ def generate_site_report(images: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     object_freq = dict(Counter(all_objects).most_common(15))
     color_freq = dict(Counter(all_colors).most_common(10))
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        raise ValueError("GROQ_API_KEY is not configured.")
 
-    response = Groq(api_key=api_key).chat.completions.create(
-        model=os.getenv("GROQ_REPORT_MODEL", "llama-3.3-70b-versatile"),
-        max_tokens=2000,
-        temperature=0.2,
-        messages=[{"role": "user", "content": _build_report_prompt(limited_images, clusters)}],
-    )
-    report_content = response.choices[0].message.content or ""
+    api_key = os.getenv("GROQ_API_KEY")
+    report_content = ""
+    generated_by = "fallback-template"
+
+    if api_key:
+        try:
+            from groq import Groq
+
+            response = Groq(api_key=api_key).chat.completions.create(
+                model=os.getenv("GROQ_REPORT_MODEL", "llama-3.3-70b-versatile"),
+                max_tokens=2000,
+                temperature=0.2,
+                messages=[{"role": "user", "content": _build_report_prompt(limited_images, clusters)}],
+            )
+            report_content = (response.choices[0].message.content or "").strip()
+            if report_content:
+                generated_by = os.getenv("GROQ_REPORT_MODEL", "llama-3.3-70b-versatile")
+        except Exception:  # noqa: BLE001 - degrade to deterministic report instead of failing
+            logging.getLogger(__name__).exception("Groq report generation failed; using fallback")
+
+    if not report_content:
+        report_content = _fallback_report_content(limited_images, clusters, object_freq, color_freq)
 
     now = _utc_now()
     return {
@@ -160,6 +240,7 @@ def generate_site_report(images: List[Dict[str, Any]]) -> Dict[str, Any]:
         "clusters": clusters,
         "object_frequencies": object_freq,
         "color_palette": list(color_freq.keys()),
+        "generated_by": generated_by,
         "generated_at": now.isoformat(),
     }
 

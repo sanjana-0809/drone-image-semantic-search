@@ -46,11 +46,13 @@ class Settings:
     allowed_image_mime_types: frozenset[str]
     allowed_image_formats: frozenset[str]
     search_score_threshold: float
+    search_fallback_results: int
     qdrant_url: str | None
     qdrant_api_key: str | None
     qdrant_host: str
     qdrant_port: int
     cloudinary_folder: str
+    app_access_key: str | None
 
 
 @lru_cache
@@ -89,9 +91,11 @@ def get_settings() -> Settings:
         }),
         allowed_image_formats=frozenset({"JPEG", "PNG", "WEBP", "TIFF", "BMP"}),
         search_score_threshold=_float_env("SEARCH_SCORE_THRESHOLD", 0.18),
+        search_fallback_results=_int_env("SEARCH_FALLBACK_RESULTS", 3),
         qdrant_url=os.getenv("QDRANT_URL"),
         qdrant_api_key=os.getenv("QDRANT_API_KEY"),
         qdrant_host=os.getenv("QDRANT_HOST", "localhost"),
         qdrant_port=_int_env("QDRANT_PORT", 6333),
         cloudinary_folder=os.getenv("CLOUDINARY_FOLDER", "drone-search"),
+        app_access_key=os.getenv("APP_ACCESS_KEY") or None,
     )

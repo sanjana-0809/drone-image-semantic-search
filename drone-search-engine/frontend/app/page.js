@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Upload, FileText, Satellite, Zap, AlertTriangle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Search, Upload, FileText, Satellite, Zap, AlertTriangle, LogOut } from 'lucide-react';
 import SearchPage from './components/SearchPage';
 import UploadPage from './components/UploadPage';
 import ReportPage from './components/ReportPage';
-import { checkBackendHealth, getStats } from '../lib/api';
+import { checkBackendHealth, getStats, signOut } from '../lib/api';
 
 const tabs = [
   { id: 'search', label: 'Search', icon: Search },
@@ -14,10 +15,17 @@ const tabs = [
 ];
 
 export default function Home() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('search');
   const [stats, setStats] = useState(null);
   const [backendHealth, setBackendHealth] = useState(null);
   const [backendError, setBackendError] = useState('');
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace('/signin');
+    router.refresh();
+  };
 
   useEffect(() => {
     getStats()
@@ -106,6 +114,15 @@ export default function Home() {
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="nav-link flex items-center gap-2"
+              title="Sign out"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
           </nav>
         </div>
       </header>
